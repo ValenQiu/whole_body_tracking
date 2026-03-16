@@ -82,9 +82,18 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
 
     api = wandb.Api()
     artifact = api.artifact(registry_name)
-    motion_file = str(pathlib.Path(artifact.download()) / "motion.npz")
+    artifact_dir = pathlib.Path(artifact.download())
+    motion_file = str(artifact_dir / "motion.npz")
     print(f"[INFO]: Loaded artifact: {registry_name}")
     print(f"[INFO]: Motion file: {motion_file}")
+
+    if not pathlib.Path(motion_file).is_file():
+        # Show what files are actually present to help diagnose
+        present = [p.name for p in artifact_dir.iterdir()]
+        raise FileNotFoundError(
+            f"Expected 'motion.npz' in artifact but found: {present}. "
+            "Re-upload this artifact with csv_to_npz.py (the file must be saved as 'motion.npz')."
+        )
 
     motion = MotionLoader(
         motion_file,

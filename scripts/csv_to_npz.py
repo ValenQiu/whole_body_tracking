@@ -316,13 +316,20 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, joi
             print(f"[INFO]: Motion saved locally: {output_file}")
 
             if not args_cli.disable_wandb:
+                import shutil
+                import tempfile
+
                 import wandb
 
                 COLLECTION = args_cli.output_name
                 run = wandb.init(project="csv_to_npz", name=COLLECTION)
                 print(f"[INFO]: Logging motion to wandb: {COLLECTION}")
                 REGISTRY = "motions"
-                logged_artifact = run.log_artifact(artifact_or_path=output_file, name=COLLECTION, type=REGISTRY)
+                # Always upload as 'motion.npz' so replay_npz.py can find it.
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    upload_path = os.path.join(tmp_dir, "motion.npz")
+                    shutil.copy2(output_file, upload_path)
+                    logged_artifact = run.log_artifact(artifact_or_path=upload_path, name=COLLECTION, type=REGISTRY)
                 run.link_artifact(artifact=logged_artifact, target_path=f"wandb-registry-{REGISTRY}/{COLLECTION}")
                 print(f"[INFO]: Motion saved to wandb registry: {REGISTRY}/{COLLECTION}")
 
