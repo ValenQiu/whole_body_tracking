@@ -11,6 +11,8 @@
 [[Arxiv]](https://arxiv.org/abs/2508.08241)
 [[Video]](https://youtu.be/RS_MtKVIAzY)
 
+## Fork by Valen
+
 ## Overview
 
 BeyondMimic is a versatile humanoid control framework that provides highly dynamic motion tracking with the
