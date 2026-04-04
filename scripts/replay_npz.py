@@ -83,17 +83,23 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
     api = wandb.Api()
     artifact = api.artifact(registry_name)
     artifact_dir = pathlib.Path(artifact.download())
-    motion_file = str(artifact_dir / "motion.npz")
     print(f"[INFO]: Loaded artifact: {registry_name}")
-    print(f"[INFO]: Motion file: {motion_file}")
 
-    if not pathlib.Path(motion_file).is_file():
-        # Show what files are actually present to help diagnose
-        present = [p.name for p in artifact_dir.iterdir()]
-        raise FileNotFoundError(
-            f"Expected 'motion.npz' in artifact but found: {present}. "
-            "Re-upload this artifact with csv_to_npz.py (the file must be saved as 'motion.npz')."
-        )
+    # New artifacts are always uploaded as 'motion.npz'.
+    # Older artifacts may use the original filename (e.g. 'walk1_subject2.npz').
+    # Fall back to any .npz file in the directory so both formats work.
+    motion_file = artifact_dir / "motion.npz"
+    if not motion_file.is_file():
+        npz_files = sorted(artifact_dir.glob("*.npz"))
+        if not npz_files:
+            raise FileNotFoundError(
+                f"No .npz file found in artifact directory: {artifact_dir}. "
+                "Re-upload this artifact with csv_to_npz.py."
+            )
+        motion_file = npz_files[0]
+        print(f"[INFO]: 'motion.npz' not found, using fallback: {motion_file.name}")
+    motion_file = str(motion_file)
+    print(f"[INFO]: Motion file: {motion_file}")
 
     motion = MotionLoader(
         motion_file,
