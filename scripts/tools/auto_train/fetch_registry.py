@@ -7,8 +7,7 @@ Usage (run from whole_body_tracking/ root):
     python scripts/tools/auto_train/fetch_registry.py \\
         --registry_name "liuming-valen-qiu-...-org/wandb-registry-Motions" \\
         [--filter "walk.*"] \\
-        [--output scripts/tools/auto_train/motions.json] \\
-        [--dry_run]
+        [--output scripts/tools/auto_train/motions.json] \\        [--dry_run]
 
 --registry_name accepts:
     entity/wandb-registry-Type                      (preferred — project path only)
@@ -18,6 +17,7 @@ Usage (run from whole_body_tracking/ root):
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -52,8 +52,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=str,
-        default="scripts/tools/auto_train/motions.json",
-        help="Output JSON file path. Default: scripts/tools/auto_train/motions.json.",
+        default=None,
+        help=(
+            "Output JSON file path. Defaults to "
+            "scripts/tools/auto_train/logs/<safe_registry_name>.json"
+        ),
     )
     parser.add_argument(
         "--dry_run",
@@ -170,6 +173,15 @@ def main() -> None:
         print("[WARN] Nothing to write — JSON file will not be created.")
         return
 
+    if args.output:
+        output_path = args.output
+    else:
+        registry_part = args.registry_name.split("/")[1]
+        safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", registry_part)
+        output_path = f"scripts/tools/auto_train/logs/{safe_name}.json"
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
     payload = {
         "entity": entity,
         "project_path": project_path,
@@ -179,11 +191,11 @@ def main() -> None:
         "motions": motions,
     }
 
-    with open(args.output, "w") as fh:
+    with open(output_path, "w") as fh:
         json.dump(payload, fh, indent=2)
         fh.write("\n")
 
-    print(f"[INFO] Saved {len(motions)} entries to: {args.output}")
+    print(f"[INFO] Saved {len(motions)} entries to: {output_path}")
 
 
 if __name__ == "__main__":

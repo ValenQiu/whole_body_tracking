@@ -28,6 +28,16 @@ class MotionOnPolicyRunner(OnPolicyRunner):
         super().__init__(env, train_cfg, log_dir, device)
         self.registry_name = registry_name
 
+    def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False):
+        try:
+            super().learn(num_learning_iterations, init_at_random_ep_len)
+        finally:
+            # Ensure wandb.finish() is always called so the run is marked "finished"
+            # rather than "crashed" when the process exits.
+            writer = getattr(self, "writer", None)
+            if writer is not None and hasattr(writer, "stop"):
+                writer.stop()
+
     def save(self, path: str, infos=None):
         """Save the model and training information."""
         super().save(path, infos)
