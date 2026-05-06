@@ -11,10 +11,9 @@ W&B run 状态（`finished` / `running`）作为全局协调依据，支持多�
 | `fetch_registry.py` | 从 W&B Registry 枚举所有 motion 集合，生成调度 JSON |
 | `fetch_runs.py` | 从 W&B Project 拉取已有 run 的状态，生成状态 JSON |
 | `auto_train.sh` | 主入口：自动 fetch → 计算队列 → 串行训练 |
-| `logs/wandb-registry-Motions.json` | （运行后生成）registry 调度表 |
-| `logs/g1_lafan1_motion_tracking.json` | （运行后生成）W&B runs 状态表 |
-| `logs/completed.log` | （运行后生成）本地已完成记录，重跑时快速跳过 |
-| `logs/failed.log` | （运行后生成）失败记录（名称、时间戳、退出码） |
+| `logs/<datetime>_auto_train/wandb-registry-Motions.json` | （运行后生成）registry 调度表 |
+| `logs/<datetime>_auto_train/g1_lafan1_motion_tracking.json` | （运行后生成）W&B runs 状态表 |
+| `logs/<datetime>_auto_train/failed.log` | （运行后生成）失败记录（名称、时间戳、退出码） |
 
 ---
 
@@ -30,9 +29,18 @@ bash scripts/tools/auto_train/auto_train.sh
 后台运行（防止 SSH 断开）：
 
 ```bash
-nohup bash scripts/tools/auto_train/auto_train.sh \
-    > logs/auto_train.log 2>&1 &
-echo "PID: $!"
+# 日志文件自动带时间戳，多台服务器共享 NAS 时互不覆盖
+LOG_FILE="scripts/tools/auto_train/logs/$(date +%Y-%m-%d_%H-%M-%S)_$(hostname -s)_nohup.log"
+nohup bash scripts/tools/auto_train/auto_train.sh > "$LOG_FILE" 2>&1 &
+echo "PID: $!  |  LOG: $LOG_FILE"
+```
+
+实时跟踪日志：
+
+```bash
+tail -f "$LOG_FILE"
+# 或加过滤，只看关键行
+tail -f "$LOG_FILE" | grep -E "\[SKIP|OK  |FAIL|INFO|WARN|CMD \]"
 ```
 
 ### 查找正在运行的训练进程
@@ -43,9 +51,6 @@ pgrep -fa "auto_train.sh"
 
 # 查看当前正在运行的 train.py 进程（含完整参数）
 pgrep -fa "train.py"
-
-# 或者查看后台日志，确认当前正在训练哪个 motion
-tail -f logs/auto_train.log
 ```
 
 ### 停止训练
@@ -141,7 +146,7 @@ bash scripts/tools/auto_train/auto_train.sh \
 bash scripts/tools/auto_train/auto_train.sh --dry_run
 ```
 
-预期：已 `finished`/`running` 的 motion 显示 `[SKIP:finished]` / `[SKIP:running]`；`completed.log` 中的显示 `[SKIP] Already in completed.log`；其余全部显示 `[CMD]`。
+预期：已 `finished`/`running` 的 motion 显示 `[SKIP:finished]` / `[SKIP:running]`；其余全部显示 `[CMD]`。
 
 ### 2. Retrain 模式（强制重训所有）
 
@@ -177,7 +182,7 @@ bash scripts/tools/auto_train/auto_train.sh \
     --retrain --dry_run
 ```
 
-预期：这两个 motion 强制显示 `[CMD]`，不受 `completed.log` 或 W&B 状态影响。
+预期：这两个 motion 强制显示 `[CMD]`，不受 W&B 状态影响。
 
 ### 预期队列大小速查
 
@@ -221,12 +226,15 @@ Server B（<2 min 后启动）：fetch → X = 仍未出现 → 重复训练 ✗
 ## 进度监控
 
 ```bash
-# 查看本地已完成
-cat scripts/tools/auto_train/logs/completed.log
+# 列出所有本次运行的日志目录
+ls -lt scripts/tools/auto_train/logs/
 
-# 查看失败记录
-cat scripts/tools/auto_train/logs/failed.log
+# 查看最新一次运行的失败记录
+cat scripts/tools/auto_train/logs/$(ls -t scripts/tools/auto_train/logs/ | head -1)/failed.log
 
-# 监控后台日志
-tail -f logs/auto_train.log
+# 实时跟踪 nohup 后台日志（$LOG_FILE 为启动时输出的路径）
+tail -f "$LOG_FILE"
+
+# 只看关键行（跳过 Isaac Sim 的大量初始化输出）
+tail -f "$LOG_FILE" | grep -E "\[SKIP|OK  |FAIL|INFO|WARN|CMD \]"
 ```
