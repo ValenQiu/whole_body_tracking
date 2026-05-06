@@ -15,6 +15,7 @@ INSTALL_REQUIRES = [
     "psutil",
     "onnxscript",
     "wandb>=0.19",
+    "protobuf>=3.20.2,<5.0.0",
 ]
 
 # Installation operation

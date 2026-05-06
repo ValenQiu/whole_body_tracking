@@ -13,7 +13,8 @@
 # 本脚本解决的问题：
 #   1. 在 IsaacLab 目录下创建 _isaac_sim -> /isaac-sim 软链接
 #   2. 修复 ~/.bashrc 中的 alias，直接指向 /isaac-sim/python.sh
-#   3. 升级 wandb，解决与 NumPy 2.0 的兼容性问题（np.float_ 已移除）
+#   3. 固化 wandb/protobuf 版本到 IsaacLab 兼容区间
+#   4. 自动加载 WANDB_API_KEY 并非交互登录（可选）
 #
 # 使用方式：
 #   bash setup_env.sh
@@ -91,20 +92,50 @@ grep -E "^(export ISAACLAB_PATH|alias python|alias pip)" "$BASHRC" | sed 's/^/  
 # Step 3: 升级 wandb（修复 np.float_ 与 NumPy 2.0 的兼容性问题）
 # ------------------------------------------------------------
 echo ""
-echo "[3/3] 检查 wandb 版本兼容性 ..."
+echo "[3/4] 固化 wandb/protobuf 兼容版本 ..."
 
-# 用绝对路径调用，避免 alias 未生效的问题
-WANDB_OK=$("$PYTHON_SH" -c "import wandb; print('ok')" 2>/dev/null || echo "fail")
+echo "[FIX]   安装/升级 wandb>=0.19 ..."
+"$PYTHON_SH" -m pip install -U "wandb>=0.19"
+echo "[FIX]   回退 protobuf 到 <5.0.0（IsaacLab 兼容）..."
+"$PYTHON_SH" -m pip install -U "protobuf>=3.20.2,<5.0.0"
 
-if [[ "$WANDB_OK" == "ok" ]]; then
-    WANDB_VER=$("$PYTHON_SH" -c "import wandb; print(wandb.__version__)" 2>/dev/null)
-    echo "[SKIP]  wandb $WANDB_VER 可正常 import，无需升级。"
+WANDB_VER=$("$PYTHON_SH" -c "import wandb; print(wandb.__version__)")
+PROTO_VER=$("$PYTHON_SH" -c "import google.protobuf as p; print(p.__version__)")
+echo "[OK]    wandb=$WANDB_VER protobuf=$PROTO_VER"
+
+# ------------------------------------------------------------
+# Step 4: 自动登录 wandb（若可用 key）
+# ------------------------------------------------------------
+echo ""
+echo "[4/4] 检查 WANDB_API_KEY 并自动登录 ..."
+
+WBT_REPO="/workspace/qiulm@xiaopeng.com/source/IsaacLab/source/whole_body_tracking"
+KEY_FILE_REPO="$WBT_REPO/wandb_api_key.txt"
+KEY_FILE_HOME="$HOME/.wandb_api_key"
+
+if [[ -z "${WANDB_API_KEY:-}" ]]; then
+    if [[ -f "$KEY_FILE_REPO" ]]; then
+        export WANDB_API_KEY="$(head -n 1 "$KEY_FILE_REPO" | tr -d '\r' | xargs)"
+        echo "[INFO]  已从 $KEY_FILE_REPO 加载 WANDB_API_KEY"
+    elif [[ -f "$KEY_FILE_HOME" ]]; then
+        export WANDB_API_KEY="$(head -n 1 "$KEY_FILE_HOME" | tr -d '\r' | xargs)"
+        echo "[INFO]  已从 $KEY_FILE_HOME 加载 WANDB_API_KEY"
+    fi
+fi
+
+if [[ -n "${WANDB_API_KEY:-}" ]]; then
+    "$PYTHON_SH" - <<'PY'
+import os
+import wandb
+key = os.environ.get("WANDB_API_KEY", "").strip()
+if key:
+    wandb.login(key=key, relogin=False)
+    print("[OK]    wandb login ensured.")
+PY
 else
-    echo "[FIX]   wandb import 失败（可能与 NumPy 2.0 不兼容），正在升级 ..."
-    "$PYTHON_SH" -m pip install --upgrade wandb 2>&1 | grep -E "(Successfully|already|ERROR)" || true
-
-    WANDB_VER=$("$PYTHON_SH" -c "import wandb; print(wandb.__version__)" 2>/dev/null || echo "unknown")
-    echo "[OK]    wandb 升级完成，版本: $WANDB_VER"
+    echo "[WARN]  未找到 WANDB_API_KEY。可将 key 放在："
+    echo "        1) $KEY_FILE_REPO"
+    echo "        2) $KEY_FILE_HOME"
 fi
 
 # ------------------------------------------------------------
