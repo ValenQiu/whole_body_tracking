@@ -80,12 +80,32 @@ class FastMotionOnPolicyRunner(MotionOnPolicyRunner):
     # ------------------------------------------------------------------
 
     def _update_curriculum(self, it: int) -> None:
-        """Write obs_noise_scale / push_velocity_scale to env.unwrapped."""
+        """Update runtime curriculum scales on env and observation noise cfg."""
         env = self.env.unwrapped
-        env.obs_noise_scale = _linear_schedule(
+        obs_noise_scale = _linear_schedule(
             it, self.noise_scale_start, 1.0, self.noise_warmup_iters)
-        env.push_velocity_scale = _linear_schedule(
+        push_velocity_scale = _linear_schedule(
             it, self.push_scale_start, 1.0, self.push_warmup_iters)
+
+        env.obs_noise_scale = obs_noise_scale
+        env.push_velocity_scale = push_velocity_scale
+
+        # Keep noise cfg in sync with runtime scale for ScaledUniformNoiseCfg.
+        obs_cfg = getattr(getattr(env, "cfg", None), "observations", None)
+        policy_cfg = getattr(obs_cfg, "policy", None) if obs_cfg is not None else None
+        if policy_cfg is not None:
+            for term_name in (
+                "motion_anchor_pos_b",
+                "motion_anchor_ori_b",
+                "base_lin_vel",
+                "base_ang_vel",
+                "joint_pos",
+                "joint_vel",
+            ):
+                term = getattr(policy_cfg, term_name, None)
+                noise = getattr(term, "noise", None) if term is not None else None
+                if noise is not None and hasattr(noise, "scale"):
+                    noise.scale = obs_noise_scale
 
     def _check_plateau(self, mean_reward: float, it: int) -> bool:
         """Return True when reward has plateaued and min_iterations passed.

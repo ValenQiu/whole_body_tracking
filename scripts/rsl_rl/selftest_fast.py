@@ -103,8 +103,21 @@ def test_m1_noise_curriculum(r: R):
     import torch
     import unittest.mock as mock
 
-    # Load curriculum.py directly (only depends on torch + dataclasses)
-    cn = _load("tasks/tracking/mdp/curriculum.py")
+    # Load curriculum.py with lightweight isaaclab mocks.
+    def _configclass(cls):
+        return cls
+
+    class _UniformNoiseCfg:
+        operation = "add"
+        n_min = -1.0
+        n_max = 1.0
+
+    with mock.patch.dict("sys.modules", {
+        "isaaclab": mock.MagicMock(),
+        "isaaclab.utils": mock.MagicMock(configclass=_configclass),
+        "isaaclab.utils.noise": mock.MagicMock(UniformNoiseCfg=_UniformNoiseCfg),
+    }):
+        cn = _load("tasks/tracking/mdp/curriculum.py")
     ScaledUniformNoiseCfg = cn.ScaledUniformNoiseCfg
 
     # Load fast_on_policy_runner with proper (real-class) mocks
@@ -122,21 +135,18 @@ def test_m1_noise_curriculum(r: R):
             _linear_schedule(0, 1.0, 1.0, 5000) == 1.0
             and _linear_schedule(100, 1.0, 1.0, 5000) == 1.0)
 
-    noise = ScaledUniformNoiseCfg(n_min=-0.25, n_max=0.25)
+    noise = ScaledUniformNoiseCfg()
+    noise.n_min = -0.25
+    noise.n_max = 0.25
+    noise.operation = "add"
     data = torch.ones(100)
-
-    class Env0:
-        obs_noise_scale = 0.0
-
-    out0 = noise(data, Env0())
+    noise.scale = 0.0
+    out0 = type(noise).func(data, noise)
     r.check("M1 ScaledNoise scale=0 → identity",
             torch.allclose(out0, data),
             f"max_diff={abs(out0 - data).max().item():.2e}")
-
-    class Env1:
-        obs_noise_scale = 1.0
-
-    outs = torch.stack([noise(data.clone(), Env1()) - data for _ in range(500)])
+    noise.scale = 1.0
+    outs = torch.stack([type(noise).func(data.clone(), noise) - data for _ in range(500)])
     r.check("M1 ScaledNoise scale=1 within [-0.25, 0.25]",
             bool(((outs >= -0.25 - 1e-6) & (outs <= 0.25 + 1e-6)).all()))
 
@@ -154,12 +164,22 @@ def test_m2_push_curriculum(r: R):
 
     # Keep import mocks active during function call, because curriculum.py
     # imports push_by_setting_velocity lazily inside the function.
+    def _configclass(cls):
+        return cls
+
+    class _UniformNoiseCfg:
+        operation = "add"
+        n_min = -1.0
+        n_max = 1.0
+
     with mock.patch.dict("sys.modules", {
         "isaaclab": mock.MagicMock(),
         "isaaclab.envs": mock.MagicMock(),
         "isaaclab.envs.mdp": mock.MagicMock(),
         "isaaclab.envs.mdp.events": mock.MagicMock(
             push_by_setting_velocity=_mock_push),
+        "isaaclab.utils": mock.MagicMock(configclass=_configclass),
+        "isaaclab.utils.noise": mock.MagicMock(UniformNoiseCfg=_UniformNoiseCfg),
     }):
         ce = _load("tasks/tracking/mdp/curriculum.py")
 

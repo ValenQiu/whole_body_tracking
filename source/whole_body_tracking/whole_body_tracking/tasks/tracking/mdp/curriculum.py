@@ -1,28 +1,39 @@
 """Unified curriculum utilities for fast training.
 
 Contains:
-- ScaledUniformNoiseCfg: noise amplitude × env.obs_noise_scale
-- curriculum_push_by_setting_velocity: push range × env.push_velocity_scale
+- ScaledUniformNoiseCfg: uniform noise with runtime scale field.
+- curriculum_push_by_setting_velocity: push range × env.push_velocity_scale.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import torch
 
+from isaaclab.utils import configclass
+from isaaclab.utils.noise import UniformNoiseCfg
 
-@dataclass
-class ScaledUniformNoiseCfg:
-    """Uniform noise whose amplitude is multiplied by ``env.obs_noise_scale``."""
 
-    n_min: float = -1.0
-    n_max: float = 1.0
+def curriculum_uniform_noise(data: torch.Tensor, cfg: "ScaledUniformNoiseCfg") -> torch.Tensor:
+    """Uniform noise with runtime amplitude scale on top of [n_min, n_max]."""
+    scale = float(getattr(cfg, "scale", 1.0))
+    lo = cfg.n_min * scale
+    hi = cfg.n_max * scale
 
-    def __call__(self, data: torch.Tensor, env) -> torch.Tensor:  # noqa: ANN001
-        scale = float(getattr(env, "obs_noise_scale", 1.0))
-        lo = self.n_min * scale
-        hi = self.n_max * scale
-        return data + (hi - lo) * torch.rand_like(data) + lo
+    if cfg.operation == "add":
+        return data + torch.rand_like(data) * (hi - lo) + lo
+    elif cfg.operation == "scale":
+        return data * (torch.rand_like(data) * (hi - lo) + lo)
+    elif cfg.operation == "abs":
+        return torch.rand_like(data) * (hi - lo) + lo
+    else:
+        raise ValueError(f"Unknown operation in noise: {cfg.operation}")
+
+
+@configclass
+class ScaledUniformNoiseCfg(UniformNoiseCfg):
+    """Uniform noise cfg with additional runtime scale field."""
+
+    func = curriculum_uniform_noise
+    scale: float = 1.0
 
 
 def curriculum_push_by_setting_velocity(
