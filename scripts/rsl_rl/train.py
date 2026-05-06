@@ -67,6 +67,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 # Import extensions to set up environment tasks
 import whole_body_tracking.tasks  # noqa: F401
 from whole_body_tracking.utils.my_on_policy_runner import MotionOnPolicyRunner as OnPolicyRunner
+from whole_body_tracking.utils.wandb_bootstrap import ensure_wandb_runtime
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -77,6 +78,15 @@ torch.backends.cudnn.benchmark = False
 @hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point")
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
     """Train with RSL-RL agent."""
+    need_registry = args_cli.motion_file is None
+    need_wandb_logger = getattr(args_cli, "logger", None) == "wandb"
+    if need_registry or need_wandb_logger:
+        env_info = ensure_wandb_runtime(auto_fix=False, require_auth=True, verbose=True)
+        print(
+            f"[INFO]: wandb bootstrap done "
+            f"(wandb={env_info['wandb_version']}, protobuf={env_info['protobuf_version']})"
+        )
+
     # override configurations with non-hydra CLI arguments
     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
