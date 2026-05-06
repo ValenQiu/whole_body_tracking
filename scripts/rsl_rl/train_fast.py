@@ -11,6 +11,15 @@ Why not patch my_on_policy_runner.MotionOnPolicyRunner?
   Patching the source module after this binding is set has no effect.
   We must patch train.__dict__['OnPolicyRunner'] instead.
 """
+import sys
+from pathlib import Path
+
+# Force current repo package path to highest priority, avoiding accidental
+# import from another whole_body_tracking checkout in PYTHONPATH.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_PKG_ROOT = _REPO_ROOT / "source/whole_body_tracking"
+sys.path.insert(0, str(_PKG_ROOT))
+
 import train as _train_mod
 from whole_body_tracking.utils.fast_on_policy_runner import FastMotionOnPolicyRunner
 
