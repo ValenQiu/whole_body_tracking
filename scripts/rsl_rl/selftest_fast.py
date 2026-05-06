@@ -103,8 +103,8 @@ def test_m1_noise_curriculum(r: R):
     import torch
     import unittest.mock as mock
 
-    # Load curriculum_noise.py directly (only depends on torch + dataclasses)
-    cn = _load("tasks/tracking/mdp/curriculum_noise.py")
+    # Load curriculum.py directly (only depends on torch + dataclasses)
+    cn = _load("tasks/tracking/mdp/curriculum.py")
     ScaledUniformNoiseCfg = cn.ScaledUniformNoiseCfg
 
     # Load fast_on_policy_runner with proper (real-class) mocks
@@ -152,7 +152,8 @@ def test_m2_push_curriculum(r: R):
     def _mock_push(env, env_ids, velocity_range):
         _cap["range"] = velocity_range
 
-    # Load curriculum_events.py and replace its push_by_setting_velocity
+    # Keep import mocks active during function call, because curriculum.py
+    # imports push_by_setting_velocity lazily inside the function.
     with mock.patch.dict("sys.modules", {
         "isaaclab": mock.MagicMock(),
         "isaaclab.envs": mock.MagicMock(),
@@ -160,34 +161,32 @@ def test_m2_push_curriculum(r: R):
         "isaaclab.envs.mdp.events": mock.MagicMock(
             push_by_setting_velocity=_mock_push),
     }):
-        ce = _load("tasks/tracking/mdp/curriculum_events.py")
-    # Override the imported name inside the module (it's now bound to the mock)
-    ce.push_by_setting_velocity = _mock_push
+        ce = _load("tasks/tracking/mdp/curriculum.py")
 
-    # Use a fixed VELOCITY_RANGE for testing
-    VR = {"x": (-0.5, 0.5), "y": (-0.3, 0.3)}
+        # Use a fixed VELOCITY_RANGE for testing
+        VR = {"x": (-0.5, 0.5), "y": (-0.3, 0.3)}
 
-    class Env01:
-        push_velocity_scale = 0.1
+        class Env01:
+            push_velocity_scale = 0.1
 
-    ce.curriculum_push_by_setting_velocity(Env01(), None, VR)
-    r.check("M2 push scale=0.1 applied",
-            abs(_cap["range"]["x"][0] - VR["x"][0] * 0.1) < 1e-9,
-            f"got={_cap['range']['x'][0]:.4f} expected={VR['x'][0]*0.1:.4f}")
+        ce.curriculum_push_by_setting_velocity(Env01(), None, VR)
+        r.check("M2 push scale=0.1 applied",
+                abs(_cap["range"]["x"][0] - VR["x"][0] * 0.1) < 1e-9,
+                f"got={_cap['range']['x'][0]:.4f} expected={VR['x'][0]*0.1:.4f}")
 
-    class Env10:
-        push_velocity_scale = 1.0
+        class Env10:
+            push_velocity_scale = 1.0
 
-    ce.curriculum_push_by_setting_velocity(Env10(), None, VR)
-    r.check("M2 push scale=1.0 = original range",
-            abs(_cap["range"]["x"][0] - VR["x"][0]) < 1e-9)
+        ce.curriculum_push_by_setting_velocity(Env10(), None, VR)
+        r.check("M2 push scale=1.0 = original range",
+                abs(_cap["range"]["x"][0] - VR["x"][0]) < 1e-9)
 
-    class EnvDefault:
-        pass  # no push_velocity_scale attr → should default to 1.0
+        class EnvDefault:
+            pass  # no push_velocity_scale attr → should default to 1.0
 
-    ce.curriculum_push_by_setting_velocity(EnvDefault(), None, VR)
-    r.check("M2 missing attr defaults to scale=1.0",
-            abs(_cap["range"]["x"][0] - VR["x"][0]) < 1e-9)
+        ce.curriculum_push_by_setting_velocity(EnvDefault(), None, VR)
+        r.check("M2 missing attr defaults to scale=1.0",
+                abs(_cap["range"]["x"][0] - VR["x"][0]) < 1e-9)
 
 
 # ---------------------------------------------------------------------------

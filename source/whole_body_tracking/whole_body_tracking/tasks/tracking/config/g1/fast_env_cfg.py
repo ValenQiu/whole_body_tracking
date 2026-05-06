@@ -11,8 +11,8 @@ from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.utils import configclass
 
 from .flat_env_cfg import G1FlatEnvCfg
-from whole_body_tracking.tasks.tracking.mdp.curriculum_noise import ScaledUniformNoiseCfg
-from whole_body_tracking.tasks.tracking.mdp.curriculum_events import (
+from whole_body_tracking.tasks.tracking.mdp.curriculum import (
+    ScaledUniformNoiseCfg,
     curriculum_push_by_setting_velocity,
 )
 from whole_body_tracking.tasks.tracking.tracking_env_cfg import VELOCITY_RANGE
