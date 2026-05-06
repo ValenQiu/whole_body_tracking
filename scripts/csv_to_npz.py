@@ -10,6 +10,7 @@
 """Launch Isaac Sim Simulator first."""
 
 import argparse
+import os
 import numpy as np
 
 from isaaclab.app import AppLauncher
@@ -30,6 +31,18 @@ parser.add_argument(
 )
 parser.add_argument("--output_name", type=str, required=True, help="The name of the motion npz file.")
 parser.add_argument("--output_fps", type=int, default=50, help="The fps of the output motion.")
+parser.add_argument(
+    "--output_file",
+    type=str,
+    default=None,
+    help="Path to save the output npz file locally. Defaults to /tmp/motion.npz.",
+)
+parser.add_argument(
+    "--disable_wandb",
+    action="store_true",
+    default=False,
+    help="Disable uploading the converted motion to WandB registry.",
+)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -298,17 +311,31 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene, joi
             ):
                 log[k] = np.stack(log[k], axis=0)
 
-            np.savez("/tmp/motion.npz", **log)
+            output_file = args_cli.output_file if args_cli.output_file is not None else "/tmp/motion.npz"
+            np.savez(output_file, **log)
+            print(f"[INFO]: Motion saved locally: {output_file}")
 
-            import wandb
+            if not args_cli.disable_wandb:
+                import shutil
+                import tempfile
 
-            COLLECTION = args_cli.output_name
-            run = wandb.init(project="csv_to_npz", name=COLLECTION)
-            print(f"[INFO]: Logging motion to wandb: {COLLECTION}")
-            REGISTRY = "motions"
-            logged_artifact = run.log_artifact(artifact_or_path="/tmp/motion.npz", name=COLLECTION, type=REGISTRY)
-            run.link_artifact(artifact=logged_artifact, target_path=f"wandb-registry-{REGISTRY}/{COLLECTION}")
-            print(f"[INFO]: Motion saved to wandb registry: {REGISTRY}/{COLLECTION}")
+                import wandb
+
+                COLLECTION = args_cli.output_name
+                run = wandb.init(project="csv_to_npz", name=COLLECTION)
+                print(f"[INFO]: Logging motion to wandb: {COLLECTION}")
+                REGISTRY = "motions"
+                # Always upload as 'motion.npz' so replay_npz.py can find it.
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    upload_path = os.path.join(tmp_dir, "motion.npz")
+                    shutil.copy2(output_file, upload_path)
+                    logged_artifact = run.log_artifact(artifact_or_path=upload_path, name=COLLECTION, type=REGISTRY)
+                run.link_artifact(artifact=logged_artifact, target_path=f"wandb-registry-{REGISTRY}/{COLLECTION}")
+                print(f"[INFO]: Motion saved to wandb registry: {REGISTRY}/{COLLECTION}")
+
+            # Done — force-exit so Isaac Sim shutdown does not hang.
+            print("[INFO]: Conversion complete. Exiting.")
+            os._exit(0)
 
 
 def main():
@@ -364,6 +391,8 @@ def main():
 
 if __name__ == "__main__":
     # run the main function
-    main()
-    # close sim app
-    simulation_app.close()
+    try:
+        main()
+    finally:
+        if simulation_app.is_running():
+            simulation_app.close()

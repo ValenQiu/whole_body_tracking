@@ -98,7 +98,22 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     api = wandb.Api()
     artifact = api.artifact(registry_name)
-    env_cfg.commands.motion.motion_file = str(pathlib.Path(artifact.download()) / "motion.npz")
+    artifact_dir = pathlib.Path(artifact.download())
+
+    motion_file = artifact_dir / "motion.npz"
+    if not motion_file.is_file():
+        npz_files = sorted(artifact_dir.glob("*.npz"))
+        if len(npz_files) == 0:
+            raise FileNotFoundError(f"No .npz motion file found under artifact directory: {artifact_dir}")
+        motion_file = npz_files[0]
+        if len(npz_files) > 1:
+            print(
+                f"[WARNING] Multiple .npz files found in artifact directory: {[p.name for p in npz_files]}. "
+                f"Using: {motion_file.name}"
+            )
+
+    env_cfg.commands.motion.motion_file = str(motion_file)
+    print(f"[INFO]: Loaded artifact motion file: {env_cfg.commands.motion.motion_file}")
 
     # specify directory for logging experiments
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)

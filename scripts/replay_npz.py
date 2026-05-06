@@ -17,6 +17,12 @@ from isaaclab.app import AppLauncher
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Replay converted motions.")
 parser.add_argument("--registry_name", type=str, required=True, help="The name of the wand registry.")
+parser.add_argument(
+    "--num_cycles",
+    type=int,
+    default=0,
+    help="Number of replay cycles before exit. 0 means run forever (default).",
+)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -76,20 +82,46 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
 
     api = wandb.Api()
     artifact = api.artifact(registry_name)
-    motion_file = str(pathlib.Path(artifact.download()) / "motion.npz")
+    artifact_dir = pathlib.Path(artifact.download())
+    print(f"[INFO]: Loaded artifact: {registry_name}")
+
+    # New artifacts are always uploaded as 'motion.npz'.
+    # Older artifacts may use the original filename (e.g. 'walk1_subject2.npz').
+    # Fall back to any .npz file in the directory so both formats work.
+    motion_file = artifact_dir / "motion.npz"
+    if not motion_file.is_file():
+        npz_files = sorted(artifact_dir.glob("*.npz"))
+        if not npz_files:
+            raise FileNotFoundError(
+                f"No .npz file found in artifact directory: {artifact_dir}. "
+                "Re-upload this artifact with csv_to_npz.py."
+            )
+        motion_file = npz_files[0]
+        print(f"[INFO]: 'motion.npz' not found, using fallback: {motion_file.name}")
+    motion_file = str(motion_file)
+    print(f"[INFO]: Motion file: {motion_file}")
 
     motion = MotionLoader(
         motion_file,
         torch.tensor([0], dtype=torch.long, device=sim.device),
         sim.device,
     )
+    total_steps = int(motion.time_step_total)
+    print(f"[INFO]: Motion frames: {total_steps}")
     time_steps = torch.zeros(scene.num_envs, dtype=torch.long, device=sim.device)
+    completed_cycles = 0
 
     # Simulation loop
     while simulation_app.is_running():
         time_steps += 1
         reset_ids = time_steps >= motion.time_step_total
-        time_steps[reset_ids] = 0
+        if reset_ids.any():
+            completed_cycles += 1
+            if args_cli.num_cycles > 0 and completed_cycles >= args_cli.num_cycles:
+                print(f"[INFO]: Reached num_cycles={args_cli.num_cycles}. Exiting replay.")
+                simulation_app.close()
+                return
+            time_steps[reset_ids] = 0
 
         root_states = robot.data.default_root_state.clone()
         root_states[:, :3] = motion.body_pos_w[time_steps][:, 0] + scene.env_origins[:, None, :]
@@ -103,8 +135,9 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
         sim.render()  # We don't want physic (sim.step())
         scene.update(sim_dt)
 
-        pos_lookat = root_states[0, :3].cpu().numpy()
-        sim.set_camera_view(pos_lookat + np.array([2.0, 2.0, 0.5]), pos_lookat)
+        if not args_cli.headless:
+            pos_lookat = root_states[0, :3].cpu().numpy()
+            sim.set_camera_view(pos_lookat + np.array([2.0, 2.0, 0.5]), pos_lookat)
 
 
 def main():
@@ -120,7 +153,8 @@ def main():
 
 
 if __name__ == "__main__":
-    # run the main function
-    main()
-    # close sim app
-    simulation_app.close()
+    try:
+        main()
+    finally:
+        if simulation_app.is_running():
+            simulation_app.close()
