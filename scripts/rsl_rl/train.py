@@ -24,7 +24,8 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
-parser.add_argument("--registry_name", type=str, required=True, help="The name of the wand registry.")
+parser.add_argument("--registry_name", type=str, default=None, help="The name of the wand registry.")
+parser.add_argument("--motion_file", type=str, default=None, help="Local path to a .npz motion file (bypasses wandb registry).")
 
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -88,32 +89,43 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env_cfg.seed = agent_cfg.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
-    # load the motion file from the wandb registry
-    registry_name = args_cli.registry_name
-    if ":" not in registry_name:  # Check if the registry name includes alias, if not, append ":latest"
-        registry_name += ":latest"
+    # load the motion file: from local path or wandb registry
     import pathlib
 
-    import wandb
+    if args_cli.motion_file is not None:
+        # Use local file directly, bypass wandb
+        motion_file = pathlib.Path(args_cli.motion_file)
+        if not motion_file.is_file():
+            raise FileNotFoundError(f"Local motion file not found: {motion_file}")
+        registry_name = args_cli.registry_name  # may be None when using local file
+        print(f"[INFO]: Using local motion file (wandb bypassed): {motion_file}")
+    else:
+        if args_cli.registry_name is None:
+            raise ValueError("Either --registry_name or --motion_file must be provided.")
+        registry_name = args_cli.registry_name
+        if ":" not in registry_name:  # Check if the registry name includes alias, if not, append ":latest"
+            registry_name += ":latest"
 
-    api = wandb.Api()
-    artifact = api.artifact(registry_name)
-    artifact_dir = pathlib.Path(artifact.download())
+        import wandb
 
-    motion_file = artifact_dir / "motion.npz"
-    if not motion_file.is_file():
-        npz_files = sorted(artifact_dir.glob("*.npz"))
-        if len(npz_files) == 0:
-            raise FileNotFoundError(f"No .npz motion file found under artifact directory: {artifact_dir}")
-        motion_file = npz_files[0]
-        if len(npz_files) > 1:
-            print(
-                f"[WARNING] Multiple .npz files found in artifact directory: {[p.name for p in npz_files]}. "
-                f"Using: {motion_file.name}"
-            )
+        api = wandb.Api()
+        artifact = api.artifact(registry_name)
+        artifact_dir = pathlib.Path(artifact.download())
+
+        motion_file = artifact_dir / "motion.npz"
+        if not motion_file.is_file():
+            npz_files = sorted(artifact_dir.glob("*.npz"))
+            if len(npz_files) == 0:
+                raise FileNotFoundError(f"No .npz motion file found under artifact directory: {artifact_dir}")
+            motion_file = npz_files[0]
+            if len(npz_files) > 1:
+                print(
+                    f"[WARNING] Multiple .npz files found in artifact directory: {[p.name for p in npz_files]}. "
+                    f"Using: {motion_file.name}"
+                )
 
     env_cfg.commands.motion.motion_file = str(motion_file)
-    print(f"[INFO]: Loaded artifact motion file: {env_cfg.commands.motion.motion_file}")
+    print(f"[INFO]: Loaded motion file: {env_cfg.commands.motion.motion_file}")
 
     # specify directory for logging experiments
     log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)

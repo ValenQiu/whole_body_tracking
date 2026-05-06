@@ -29,10 +29,8 @@
 # Legacy bypass (skips registry auto-fetch):
 #   --json PATH        Use this motions JSON directly instead of fetching.
 #                      W&B run state check is still performed via --wandb_project.
-#                      completed.log fast-skip still applies.
 #
-# State files (written to scripts/tools/auto_train/logs/):
-#   completed.log      One motion name per line — local fast-skip cache.
+# State files (written to scripts/tools/auto_train/logs/<date_time>_auto_train/):
 #   failed.log         "<name>\t<ISO timestamp>\t<exit_code>" per failure.
 # ---------------------------------------------------------------------------
 
@@ -50,11 +48,12 @@ RETRAIN=false
 MOTIONS_FILTER=""     # space-separated names from --motions
 DRY_RUN=false
 
-PYTHON="/workspace/isaaclab/_isaac_sim/python.sh"
+PYTHON="/isaac-sim/python.sh"
 TRAIN_SCRIPT="scripts/rsl_rl/train.py"
 FETCH_REGISTRY_SCRIPT="scripts/tools/auto_train/fetch_registry.py"
 FETCH_RUNS_SCRIPT="scripts/tools/auto_train/fetch_runs.py"
-LOG_DIR="scripts/tools/auto_train/logs"
+RUN_TIMESTAMP="$(date +"%Y-%m-%d_%H-%M-%S")"
+LOG_DIR="scripts/tools/auto_train/logs/${RUN_TIMESTAMP}_auto_train"
 
 # ---- argument parsing -------------------------------------------------------
 while [[ $# -gt 0 ]]; do
@@ -96,15 +95,13 @@ mkdir -p "$LOG_DIR"
 
 # ---- auto-fetch registry (skipped when --json is given) ---------------------
 if [[ -z "$MOTIONS_JSON" ]]; then
+    _reg_part="$(echo "$REGISTRY_NAME" | cut -d'/' -f2 | sed 's/[^a-zA-Z0-9_-]/_/g')"
+    MOTIONS_JSON="$LOG_DIR/${_reg_part}.json"
     echo "[INFO] Fetching registry: $REGISTRY_NAME"
-    if ! "$PYTHON" "$FETCH_REGISTRY_SCRIPT" --registry_name "$REGISTRY_NAME"; then
+    if ! "$PYTHON" "$FETCH_REGISTRY_SCRIPT" --registry_name "$REGISTRY_NAME" --output "$MOTIONS_JSON"; then
         echo "[ERROR] fetch_registry.py failed."
         exit 1
     fi
-    # Derive output path using the same sanitisation as fetch_registry.py:
-    # take the second path segment (project part) and replace non-alnum with _.
-    _reg_part="$(echo "$REGISTRY_NAME" | cut -d'/' -f2 | sed 's/[^a-zA-Z0-9_-]/_/g')"
-    MOTIONS_JSON="$LOG_DIR/${_reg_part}.json"
 else
     echo "[INFO] Using --json bypass: $MOTIONS_JSON"
 fi
@@ -117,20 +114,18 @@ fi
 # ---- fetch runs status (always, for W&B-based coordination) -----------------
 RUNS_JSON=""
 if [[ -n "$WANDB_PROJECT" ]]; then
+    _proj_part="$(echo "$WANDB_PROJECT" | cut -d'/' -f2 | sed 's/[^a-zA-Z0-9_-]/_/g')"
+    RUNS_JSON="$LOG_DIR/${_proj_part}.json"
     echo "[INFO] Fetching runs status: $WANDB_PROJECT"
-    if "$PYTHON" "$FETCH_RUNS_SCRIPT" --project "$WANDB_PROJECT" > /dev/null 2>&1; then
-        _proj_part="$(echo "$WANDB_PROJECT" | cut -d'/' -f2 | sed 's/[^a-zA-Z0-9_-]/_/g')"
-        RUNS_JSON="$LOG_DIR/${_proj_part}.json"
-    else
+    if ! "$PYTHON" "$FETCH_RUNS_SCRIPT" --project "$WANDB_PROJECT" --output "$RUNS_JSON" > /dev/null 2>&1; then
         echo "[WARN] fetch_runs.py failed — all motions will be treated as untrained."
+        RUNS_JSON=""
     fi
 fi
 
 # ---- state files ------------------------------------------------------------
-STATE_DIR="$(cd "$(dirname "$MOTIONS_JSON")" && pwd)"
-COMPLETED_LOG="$STATE_DIR/completed.log"
-FAILED_LOG="$STATE_DIR/failed.log"
-touch "$COMPLETED_LOG" "$FAILED_LOG"
+FAILED_LOG="$LOG_DIR/failed.log"
+touch "$FAILED_LOG"
 
 # ---- resolve training queue -------------------------------------------------
 # Write the resolver script to a temp file (avoids heredoc-in-subshell issues).
@@ -212,8 +207,8 @@ RECHECK_SCRIPT="$(mktemp /tmp/auto_train_recheck_XXXXXX.py)"
 cat > "$RECHECK_SCRIPT" << 'PYEOF'
 import json, re, sys
 
-runs_path = sys.argv[1]
-safe      = sys.argv[2]
+runs_path    = sys.argv[1]
+safe         = sys.argv[2]
 
 
 def safe_name_from_run(n):
@@ -224,8 +219,10 @@ def safe_name_from_run(n):
 with open(runs_path) as f:
     data = json.load(f)
 
+skip_states = {"finished", "running"}
+
 for r in data.get("runs", []):
-    if safe_name_from_run(r["name"]) == safe and r["state"] in ("finished", "running"):
+    if safe_name_from_run(r["name"]) == safe and r["state"] in skip_states:
         print(r["state"])
         break
 PYEOF
@@ -247,7 +244,6 @@ echo "[INFO] Max iterations:   $MAX_ITERATIONS"
 [[ -n "$NUM_ENVS" ]] && echo "[INFO] Num envs:         $NUM_ENVS"
 echo "[INFO] Mode:             $MODE_DESC"
 echo "[INFO] Queue size:       $TOTAL"
-echo "[INFO] completed.log:    $COMPLETED_LOG"
 echo "[INFO] failed.log:       $FAILED_LOG"
 $DRY_RUN && echo "[INFO] *** DRY RUN — commands will be printed but not executed ***"
 echo "============================================================"
@@ -273,18 +269,11 @@ for entry in "${ENTRIES[@]}"; do
     echo "  registry_name : $registry_name_entry"
     echo "  run_name      : $safe_name"
 
-    # ---- local fast-skip (completed.log) ------------------------------------
-    if ! $RETRAIN && grep -qxF "$name" "$COMPLETED_LOG" 2>/dev/null; then
-        echo "[SKIP] Already in completed.log — skipping."
-        (( SKIPPED++ )) || true
-        continue
-    fi
-
     # ---- per-motion re-fetch (multi-server safety) --------------------------
     # Immediately before launching train.py, re-fetch runs from W&B and check
     # if another server has claimed this motion since the startup fetch.
     if [[ -n "$RUNS_JSON" ]] && ! $RETRAIN && ! $DRY_RUN; then
-        if "$PYTHON" "$FETCH_RUNS_SCRIPT" --project "$WANDB_PROJECT" > /dev/null 2>&1; then
+        if "$PYTHON" "$FETCH_RUNS_SCRIPT" --project "$WANDB_PROJECT" --output "$RUNS_JSON" > /dev/null 2>&1; then
             SKIP_REASON="$("$PYTHON" "$RECHECK_SCRIPT" "$RUNS_JSON" "$safe_name" 2>/dev/null || true)"
             if [[ -n "$SKIP_REASON" ]]; then
                 echo "[SKIP] Re-fetch shows state=$SKIP_REASON on W&B — skipping."
@@ -323,7 +312,6 @@ for entry in "${ENTRIES[@]}"; do
 
     if [[ $EXIT_CODE -eq 0 ]]; then
         echo "[OK  ] Training finished successfully."
-        echo "$name" >> "$COMPLETED_LOG"
         (( SUCCESS++ )) || true
     else
         echo "[FAIL] Training exited with code $EXIT_CODE."
