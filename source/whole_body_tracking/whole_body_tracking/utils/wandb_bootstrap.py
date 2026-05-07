@@ -34,7 +34,7 @@ def _version_tuple(raw: str) -> tuple[int, int, int]:
         nums.append(int(cur))
     while len(nums) < 3:
         nums.append(0)
-    return tuple(nums[:3])
+    return (nums[0], nums[1], nums[2])
 
 
 def _pkg_version(name: str) -> str | None:
