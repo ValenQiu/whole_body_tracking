@@ -14,7 +14,7 @@ Two modes:
      - push scale application via mock
   2. Full (requires isaaclab Python packages in PYTHONPATH): adds
      - G1FastEnvCfg vs G1FlatEnvCfg cfg parity
-     - All runner cfg sentinel values
+     - Production ``G1FastPPORunnerCfg`` + archived ablation module import
      To run full mode, set PYTHONPATH to include isaaclab source dirs.
 """
 import sys
@@ -138,15 +138,20 @@ def test_m1_noise_curriculum(r: R):
     noise = ScaledUniformNoiseCfg()
     noise.n_min = -0.25
     noise.n_max = 0.25
-    noise.operation = "add"
     data = torch.ones(100)
-    noise.scale = 0.0
-    out0 = type(noise).func(data, noise)
-    r.check("M1 ScaledNoise scale=0 → identity",
+
+    class _EnvScale0:
+        obs_noise_scale = 0.0
+
+    out0 = noise(data.clone(), _EnvScale0())
+    r.check("M1 ScaledNoise obs_noise_scale=0 → identity",
             torch.allclose(out0, data),
             f"max_diff={abs(out0 - data).max().item():.2e}")
-    noise.scale = 1.0
-    outs = torch.stack([type(noise).func(data.clone(), noise) - data for _ in range(500)])
+
+    class _EnvScale1:
+        obs_noise_scale = 1.0
+
+    outs = torch.stack([noise(data.clone(), _EnvScale1()) - data for _ in range(500)])
     r.check("M1 ScaledNoise scale=1 within [-0.25, 0.25]",
             bool(((outs >= -0.25 - 1e-6) & (outs <= 0.25 + 1e-6)).all()))
 
@@ -282,35 +287,36 @@ def test_m0_cfg_sentinels(r: R):
         # base_ppo because _load registered it as `{agents_pkg}.rsl_rl_ppo_cfg`.
         fast_ppo = _load("tasks/tracking/config/g1/agents/rsl_rl_fast_ppo_cfg.py",
                          package=agents_pkg)
+        ablation = _load(
+            "tasks/tracking/config/g1/agents/rsl_rl_fast_ppo_cfg_ablation.py",
+            package=agents_pkg,
+        )
 
-    G1FastBasePPORunnerCfg      = fast_ppo.G1FastBasePPORunnerCfg
-    G1FastNoisePPORunnerCfg     = fast_ppo.G1FastNoisePPORunnerCfg
-    G1FastPushPPORunnerCfg      = fast_ppo.G1FastPushPPORunnerCfg
-    G1FastEarlyStopPPORunnerCfg = fast_ppo.G1FastEarlyStopPPORunnerCfg
-    G1FastFullPPORunnerCfg      = fast_ppo.G1FastFullPPORunnerCfg
+    prod = fast_ppo.G1FastPPORunnerCfg()
+    r.check("M0 prod: noise curriculum on", prod.noise_scale_start < 1.0)
+    r.check("M0 prod: push curriculum on", prod.push_scale_start < 1.0)
+    r.check("M0 prod: early stop off (sentinel)", prod.min_iterations >= int(1e8))
+    r.check("M0 prod: experiment_name", prod.experiment_name == "g1_fast")
 
-    base = G1FastBasePPORunnerCfg()
-    r.check("M0 base: noise_scale_start sentinel=1.0", base.noise_scale_start == 1.0)
-    r.check("M0 base: push_scale_start sentinel=1.0",  base.push_scale_start == 1.0)
-    r.check("M0 base: min_iterations sentinel>=1e8",   base.min_iterations >= int(1e8))
+    base = ablation.G1FastBasePPORunnerCfg()
+    r.check("M0 archive base: noise sentinel=1.0", base.noise_scale_start == 1.0)
+    r.check("M0 archive base: push sentinel=1.0", base.push_scale_start == 1.0)
 
-    noise = G1FastNoisePPORunnerCfg()
-    r.check("M0 noise cfg: noise_scale_start<1.0", noise.noise_scale_start < 1.0)
-    r.check("M0 noise cfg: push still disabled",   noise.push_scale_start == 1.0)
-    r.check("M0 noise cfg: early stop still off",  noise.min_iterations >= int(1e8))
+    noise_only = ablation.G1FastNoisePPORunnerCfg()
+    r.check("M0 archive noise-only: noise<1", noise_only.noise_scale_start < 1.0)
+    r.check("M0 archive noise-only: push off", noise_only.push_scale_start == 1.0)
 
-    push = G1FastPushPPORunnerCfg()
-    r.check("M0 push cfg: push_scale_start<1.0",  push.push_scale_start < 1.0)
-    r.check("M0 push cfg: noise still disabled",  push.noise_scale_start == 1.0)
-
-    es = G1FastEarlyStopPPORunnerCfg()
-    r.check("M0 earlystop cfg: min_iterations<1e8",   es.min_iterations < int(1e8))
-    r.check("M0 earlystop cfg: noise still disabled", es.noise_scale_start == 1.0)
-
-    full = G1FastFullPPORunnerCfg()
-    r.check("M0 full cfg: noise active",     full.noise_scale_start < 1.0)
-    r.check("M0 full cfg: push active",      full.push_scale_start < 1.0)
-    r.check("M0 full cfg: early stop active", full.min_iterations < int(1e8))
+    g1_init = os.path.join(
+        _SRC, "tasks/tracking/config/g1/__init__.py")
+    with open(g1_init, encoding="utf-8") as f:
+        g1_text = f.read()
+    r.check("M0 gym: only Tracking-Fast-G1-v0 registered",
+            g1_text.count('id="Tracking-Fast-G1-v0"') == 1)
+    r.check("M0 gym: ablation task ids removed",
+            "Tracking-Fast-Noise-G1-v0" not in g1_text
+            and "Tracking-Fast-Full-G1-v0" not in g1_text)
+    r.check("M0 gym: production runner entry",
+            "rsl_rl_fast_ppo_cfg:G1FastPPORunnerCfg" in g1_text)
 
 
 # ---------------------------------------------------------------------------

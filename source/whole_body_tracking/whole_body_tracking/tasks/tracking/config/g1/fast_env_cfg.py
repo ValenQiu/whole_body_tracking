@@ -4,8 +4,7 @@ Replaces obs noise with ScaledUniformNoiseCfg (reads env.obs_noise_scale,
 default 1.0 = identical to base) and push event with curriculum_push
 (reads env.push_velocity_scale, default 1.0 = identical to base).
 
-All fast-training tasks use this single env cfg; behavior differs only
-by what the runner writes to obs_noise_scale / push_velocity_scale.
+Used by `Tracking-Fast-G1-v0`; runner writes `obs_noise_scale` / `push_velocity_scale`.
 """
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.utils import configclass
