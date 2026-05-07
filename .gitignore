@@ -42,3 +42,7 @@ _build
 
 **/assets/
 artifacts/
+
+# Secrets
+wandb_api_key.txt
+.wandb_api_key
