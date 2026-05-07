@@ -26,7 +26,7 @@ class MyOnPolicyRunner(OnPolicyRunner):
 
 class MotionOnPolicyRunner(OnPolicyRunner):
     def __init__(
-        self, env: VecEnv, train_cfg: dict, log_dir: str | None = None, device="cpu", registry_name: str | None = None
+        self, env: VecEnv, train_cfg: dict, log_dir: str | None = None, device="cpu", registry_name: str = None
     ):
         super().__init__(env, train_cfg, log_dir, device)
         self.registry_name = registry_name
