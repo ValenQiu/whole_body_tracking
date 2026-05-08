@@ -206,5 +206,9 @@ bash setup_env.sh && source ~/.bashrc
 | `command not found: python` / `alias python` 报错 | `~/.bashrc` 未 source | `source ~/.bashrc` 或重开终端 |
 | `wandb.errors.UsageError: No API key configured` | wandb 未登录 | 用 `--motion_file` 本地路径参数，或先执行 `wandb login` |
 | `FileNotFoundError: unitree_description` | assets 未下载 | 执行 Step 2a 下载资产 |
+| `Error: Not Found ... unitree_description/urdf/g1/main.urdf` | 机器人 URDF 资产缺失 | 检查并补齐 `source/whole_body_tracking/whole_body_tracking/assets/unitree_description/` |
+| `X11 Forwarding is disabled from '.container.cfg'` | 容器 X11 转发被关闭 | 将 `X11_FORWARDING_ENABLED=1` 后重启容器，或删除 `.container.cfg` 重新选择启用 |
+| `Cannot setup ExternalDragDrop without a default window` / `get_keyboard` | GUI 模式下默认窗口不可用（X11 cookie/display 不可用） | 容器环境先修复 X11，或直接使用 `--headless` |
+| `Disabling key-value database because another kit process is locking it` | 仍有其他 Isaac Sim / replay 进程运行 | 先清理残留进程再启动新任务 |
 | `DriverShaderCacheManager::init() called without a shutdown()` | GPU shader cache 警告 | 无需处理，不影响运行 |
 | `GLFW initialization failed` | headless 模式无显示器 | 正常现象，加 `--headless` 运行即可 |

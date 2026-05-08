@@ -99,6 +99,20 @@ This will automatically upload the processed motion file to the WandB registry w
 python scripts/replay_npz.py --registry_name={your-organization}-org/wandb-registry-motions/{motion_name}
 ```
 
+- Replay from a local `.npz` file (offline, no WandB access required):
+
+```bash
+python scripts/replay_npz.py --motion_file=/absolute/path/to/motion.npz --headless --num_cycles=1
+```
+
+- Quick replay troubleshooting checklist:
+    - If the app exits right after startup, check robot assets first:
+      `ls source/whole_body_tracking/whole_body_tracking/assets/unitree_description/urdf/g1/main.urdf`
+    - If you see `No API key configured`, either run `wandb login` or switch to `--motion_file`.
+    - If you see `X connection ... broken` while using `--headless`, clear stale Isaac/replay processes and re-run.
+    - If you see `Disabling key-value database because another kit process is locking it`, another Isaac process is running.
+    - `DriverShaderCacheManager::init() called without a shutdown()` is often a secondary symptom from startup interruption, not the root cause.
+
 - Debugging
     - Make sure to export WANDB_ENTITY to your organization name, not your personal username.
     - If /tmp folder is not accessible, modify csv_to_npz.py L319 & L326 to a temporary folder of your choice.
