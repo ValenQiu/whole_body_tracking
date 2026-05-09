@@ -9,6 +9,7 @@
 """Launch Isaac Sim Simulator first."""
 
 import argparse
+import pathlib
 import numpy as np
 import torch
 
@@ -16,7 +17,8 @@ from isaaclab.app import AppLauncher
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Replay converted motions.")
-parser.add_argument("--registry_name", type=str, required=True, help="The name of the wand registry.")
+parser.add_argument("--registry_name", type=str, default=None, help="The name of the wand registry.")
+parser.add_argument("--motion_file", type=str, default=None, help="Local path to a .npz motion file.")
 parser.add_argument(
     "--num_cycles",
     type=int,
@@ -73,32 +75,48 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
     # Define simulation stepping
     sim_dt = sim.get_physics_dt()
 
-    registry_name = args_cli.registry_name
-    if ":" not in registry_name:  # Check if the registry name includes alias, if not, append ":latest"
-        registry_name += ":latest"
-    import pathlib
+    if args_cli.motion_file is not None:
+        motion_file = pathlib.Path(args_cli.motion_file).expanduser().resolve()
+        if not motion_file.is_file():
+            raise FileNotFoundError(f"Local motion file not found: {motion_file}")
+        print(f"[INFO]: Using local motion file: {motion_file}")
+        motion_file = str(motion_file)
+    else:
+        if args_cli.registry_name is None:
+            raise ValueError("Either --registry_name or --motion_file must be provided.")
 
-    import wandb
+        registry_name = args_cli.registry_name
+        if ":" not in registry_name:  # Check if the registry name includes alias, if not, append ":latest"
+            registry_name += ":latest"
 
-    api = wandb.Api()
-    artifact = api.artifact(registry_name)
-    artifact_dir = pathlib.Path(artifact.download())
-    print(f"[INFO]: Loaded artifact: {registry_name}")
+        try:
+            import wandb
 
-    # New artifacts are always uploaded as 'motion.npz'.
-    # Older artifacts may use the original filename (e.g. 'walk1_subject2.npz').
-    # Fall back to any .npz file in the directory so both formats work.
-    motion_file = artifact_dir / "motion.npz"
-    if not motion_file.is_file():
-        npz_files = sorted(artifact_dir.glob("*.npz"))
-        if not npz_files:
-            raise FileNotFoundError(
-                f"No .npz file found in artifact directory: {artifact_dir}. "
-                "Re-upload this artifact with csv_to_npz.py."
-            )
-        motion_file = npz_files[0]
-        print(f"[INFO]: 'motion.npz' not found, using fallback: {motion_file.name}")
-    motion_file = str(motion_file)
+            api = wandb.Api()
+            artifact = api.artifact(registry_name)
+            artifact_dir = pathlib.Path(artifact.download())
+        except Exception as exc:
+            raise RuntimeError(
+                "Failed to download motion artifact from W&B. "
+                "Please run `wandb login`, verify --registry_name, or use --motion_file for offline replay."
+            ) from exc
+
+        print(f"[INFO]: Loaded artifact: {registry_name}")
+
+        # New artifacts are always uploaded as 'motion.npz'.
+        # Older artifacts may use the original filename (e.g. 'walk1_subject2.npz').
+        # Fall back to any .npz file in the directory so both formats work.
+        motion_file = artifact_dir / "motion.npz"
+        if not motion_file.is_file():
+            npz_files = sorted(artifact_dir.glob("*.npz"))
+            if not npz_files:
+                raise FileNotFoundError(
+                    f"No .npz file found in artifact directory: {artifact_dir}. "
+                    "Re-upload this artifact with csv_to_npz.py."
+                )
+            motion_file = npz_files[0]
+            print(f"[INFO]: 'motion.npz' not found, using fallback: {motion_file.name}")
+        motion_file = str(motion_file)
     print(f"[INFO]: Motion file: {motion_file}")
 
     motion = MotionLoader(
