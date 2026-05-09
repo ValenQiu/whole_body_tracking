@@ -120,13 +120,13 @@ GR00T 文档给出的 SONIC 常规流程：
 转换逻辑：
 
 - 若输入是 IsaacLab 顺序（`joint_order == "il"`），按 `MJ_TO_IL` 重排到 MuJoCo
-- 若输入已是 MuJoCo（Bones flat CSV），直接使用
+- 若输入已是 MuJoCo（Bones flat CSV），在 **whole_body_tracking** 侧写入 BM `.npz` 时必须再映射回 IsaacLab 关节向量顺序（见下文 **§9**）
 
 `MJ_TO_IL`（长度29）：
 
 `[0,3,6,9,13,17,1,4,7,10,14,18,2,5,8,11,15,19,21,23,25,27,12,16,20,22,24,26,28]`
 
-可直观理解为：MuJoCo 第 `i` 个 DOF 对应 IsaacLab 第 `MJ_TO_IL[i]` 个 DOF。
+可直观理解为：MuJoCo / flat CSV 第 `i` 列 DOF 的标量应落在 IsaacLab `joint_pos` 的第 `MJ_TO_IL[i]` 个分量上（与 `scripts/csv_to_npz.py` 里 `find_joints(..., preserve_order=True)` 后的整向量下标一致）。
 
 ---
 
@@ -209,7 +209,36 @@ GR00T 文档给出的 SONIC 常规流程：
 
 ---
 
-## 9. 主要依据文件（便于追溯）
+## 9. whole_body_tracking（BM）侧 `motion.npz` 与 soma2bm
+
+本仓库 **IsaacLab v2.1 / G1** 上训练与 `replay_npz.py` 使用的动作文件，由 `MotionLoader`（`source/whole_body_tracking/.../tasks/tracking/mdp/commands.py`）加载，**键名与形状**如下（无其它别名）：
+
+| 键 | 形状（典型） | 说明 |
+|----|----------------|------|
+| `fps` | 标量或 `(1,)` | 输出帧率 |
+| `joint_pos` | `(T, N_joint)` | 与仿真 `robot.data.joint_pos` **同维、同索引顺序** |
+| `joint_vel` | `(T, N_joint)` | 同上 |
+| `body_pos_w` | `(T, N_links, 3)` | 各刚体世界系位置 |
+| `body_quat_w` | `(T, N_links, 4)` | **w, x, y, z** |
+| `body_lin_vel_w` | `(T, N_links, 3)` | 世界系线速度 |
+| `body_ang_vel_w` | `(T, N_links, 3)` | 世界系角速度 |
+
+**官方 CSV→npz（带仿真）**：`scripts/csv_to_npz.py` 从**无表头** CSV 读入 `3+4+29` 列（根位置、四元数 **xyzw**、关节 **弧度**），按硬编码 `joint_names` 列表把 DOF 写入对应关节索引，再记录 **整根** `robot.data.joint_pos` / 全表 `body_*_w`，因此落盘的 `joint_pos` 第二维是 **Isaac 关节顺序**，不是 CSV 列顺序。
+
+**soma-bones-seed-g1 flat CSV→npz（离线）**：`scripts/tools/soma2bm/soma2bm_lib.py` 要求表头与 `EXPECTED_COLUMNS` 完全一致（§4.1 所列 36 列）。CSV 中 29 个 `*_dof` 为 **度**，根平移 **厘米**，根旋转 **度（Euler xyz）**；重采样后：
+
+- 默认 **`apply_mujoco_csv_to_isaac_joint_reorder=True`**：对 `joint_pos` / `joint_vel` 按上表 **`MJ_TO_IL`** 做置换，使与 BM / `csv_to_npz.py` 的 Isaac 关节顺序一致（修复此前「按 CSV 列直接堆叠导致 replay/训练关节错乱」的问题）。
+- 若某来源已按 Isaac 关节顺序排好列，可传 `--assume_isaac_joint_order`（单文件）或批量脚本同名开关以跳过置换。
+
+**`body_*` 差异**：离线转换仅填充 **`body_*[:, 0, ...]`**（根），其余 link 为 0 位姿 + 单位四元数，与 `replay_npz.py`（只用索引 0）一致；与 `csv_to_npz.py` 的全链路 FK 全表不同。若需与奖励里多体误差完全一致，需后续补全 link 位姿或走仿真导出。
+
+**与 SONIC motion_lib 的衔接**：SONIC PKL 内 `dof` 多为 **MuJoCo 顺序**；本仓库 BM `.npz` 需要 **IsaacLab 顺序** — 与 §4.2 的 `MJ_TO_IL` 为同一套几何约定，已由 `soma2bm` 默认应用。
+
+---
+
+## 10. 主要依据文件（便于追溯）
+
+### GR00T / SONIC 上游
 
 - `gear_sonic/data_process/convert_soma_csv_to_motion_lib.py`
 - `gear_sonic/envs/manager_env/robots/g1.py`
@@ -219,3 +248,10 @@ GR00T 文档给出的 SONIC 常规流程：
 - `docs/source/user_guide/training_data.md`
 - `docs/source/references/motion_reference.md`
 - `docs/source/user_guide/new_embodiments.md`
+
+### whole_body_tracking / 本仓库
+
+- `scripts/csv_to_npz.py`（带仿真的 G1 motion npz 金标准）
+- `scripts/replay_npz.py`
+- `scripts/tools/soma2bm/soma2bm_lib.py`、`convert_soma_bones_csv_to_bm_npz.py`
+- `source/whole_body_tracking/.../tasks/tracking/mdp/commands.py`（`MotionLoader`）

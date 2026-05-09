@@ -21,6 +21,11 @@ def parse_args():
     parser.add_argument("--output_fps", type=int, default=50, help="Output npz fps")
     parser.add_argument("--num_bodies", type=int, default=30, help="Body count for body_* arrays")
     parser.add_argument("--skip_existing", action="store_true", help="Skip existing npz files")
+    parser.add_argument(
+        "--assume_isaac_joint_order",
+        action="store_true",
+        help="Pass through to convert_csv_to_bm_npz (skip MJ->IL joint reorder).",
+    )
     return parser.parse_args()
 
 
@@ -51,6 +56,7 @@ def main():
                 input_fps=args.input_fps,
                 output_fps=args.output_fps,
                 num_bodies=args.num_bodies,
+                apply_mujoco_csv_to_isaac_joint_reorder=not args.assume_isaac_joint_order,
             )
             converted.append({"relative_csv_path": rel, "output_npz": str(dst)})
         except Exception as e:  # noqa: BLE001

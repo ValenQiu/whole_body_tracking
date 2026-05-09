@@ -43,6 +43,30 @@ EXPECTED_COLUMNS = [
     "right_wrist_yaw_joint_dof",
 ]
 
+# Bones-SEED flat CSV / MuJoCo column order (EXPECTED_COLUMNS[7:]) -> IsaacLab G1
+# `joint_pos` tensor index order (same convention as GR00T SONIC `MJ_TO_IL`).
+# CSV column i (0..28) is MuJoCo DOF i; IsaacLab slot MJ_TO_IL[i] must store that value.
+MJ_CSV_DOFS_TO_ISAAC_JOINT_INDEX = np.array(
+    [0, 3, 6, 9, 13, 17, 1, 4, 7, 10, 14, 18, 2, 5, 8, 11, 15, 19, 21, 23, 25, 27, 12, 16, 20, 22, 24, 26, 28],
+    dtype=np.intp,
+)
+
+
+def _isaac_joint_slot_to_mujoco_csv_column() -> np.ndarray:
+    inv = np.empty_like(MJ_CSV_DOFS_TO_ISAAC_JOINT_INDEX)
+    inv[MJ_CSV_DOFS_TO_ISAAC_JOINT_INDEX] = np.arange(
+        MJ_CSV_DOFS_TO_ISAAC_JOINT_INDEX.shape[0], dtype=MJ_CSV_DOFS_TO_ISAAC_JOINT_INDEX.dtype
+    )
+    return inv
+
+
+_ISAAC_JOINT_SLOT_TO_MJ_CSV_COL = _isaac_joint_slot_to_mujoco_csv_column()
+
+
+def _permute_mujoco_csv_dof_rows_to_isaac_lab(dof: np.ndarray) -> np.ndarray:
+    """Map (T,29) DOFs in CSV/MuJoCo order to IsaacLab `joint_pos` column order."""
+    return np.take(dof, _ISAAC_JOINT_SLOT_TO_MJ_CSV_COL, axis=-1)
+
 
 def clip_id_to_relative_csv_path(clip_id: str) -> str:
     if "-" not in clip_id:
@@ -128,6 +152,8 @@ def convert_csv_to_bm_npz(
     input_fps: int = 120,
     output_fps: int = 50,
     num_bodies: int = 30,
+    *,
+    apply_mujoco_csv_to_isaac_joint_reorder: bool = True,
 ) -> None:
     raw = np.genfromtxt(input_csv, delimiter=",", names=True, dtype=np.float64)
     if raw.dtype.names is None:
@@ -179,6 +205,9 @@ def convert_csv_to_bm_npz(
 
     dt = 1.0 / float(output_fps)
     dof_vel = np.gradient(dof_out, dt, axis=0).astype(np.float32)
+    if apply_mujoco_csv_to_isaac_joint_reorder:
+        dof_out = _permute_mujoco_csv_dof_rows_to_isaac_lab(dof_out)
+        dof_vel = _permute_mujoco_csv_dof_rows_to_isaac_lab(dof_vel)
     root_lin_vel = np.gradient(root_pos_out, dt, axis=0).astype(np.float32)
     root_ang_vel = _compute_angular_velocity_from_wxyz(root_quat_out, dt)
 
