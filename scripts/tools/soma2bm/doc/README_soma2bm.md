@@ -21,6 +21,12 @@ python scripts/tools/soma2bm/batch_convert_soma_bones_to_bm_npz.py \
   --num_bodies 30
 ```
 
+默认会应用 MuJoCo/CSV 到 IsaacLab joint index 的重排修正。若输入本身已是 Isaac joint 顺序，可添加：
+
+```bash
+--assume_isaac_joint_order
+```
+
 ## 3) Register to W&B artifact
 
 ```bash
