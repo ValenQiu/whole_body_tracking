@@ -4,7 +4,7 @@
 
 本文汇总 [PHUMA 代码仓库](https://github.com/DAVIAN-Robotics/PHUMA)、[Hugging Face 数据集页](https://huggingface.co/datasets/DAVIAN-Robotics/PHUMA)、论文 [arXiv:2510.26236](https://arxiv.org/pdf/2510.26236) 的公开描述，并结合本机数据 **`/home/qiulm/Dataset/PHUMA/data/g1`** 抽样校验结果；最后按本仓库 **`scripts/tools/soma2bm`** 既有流程，说明 **PHUMA → BM `motion.npz`** 的等价步骤与实现约定。
 
-**命令速查**：见同目录上一级 [`README_phuma2bm.md`](../README_phuma2bm.md)。
+**命令速查**：见同目录 [`README_phuma2bm.md`](./README_phuma2bm.md)。
 
 ---
 

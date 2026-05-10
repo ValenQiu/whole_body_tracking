@@ -60,4 +60,4 @@ python scripts/rsl_rl/train.py \
 
 ## 文档
 
-- `doc/PHUMA_信息蒸馏与BM适配.md`：数据格式与 BM 字段对照说明。
+- [PHUMA_信息蒸馏与BM适配.md](./PHUMA_信息蒸馏与BM适配.md)：数据格式与 BM 字段对照说明。
